@@ -37,7 +37,6 @@ fi
 password=$3
 if [ -z "$password" ]; then
   password=
-fi
 
 #
 # Validate dependencies are available
@@ -58,10 +57,10 @@ if ! [ -x "$(command -v hxnormalize)" ]; then
   exit 1
 fi
 
-if ! [ -x "$(command -v hxselect)" ]; then
-  echo '{"success": 0, "message": "hxselect command not found"}'
-  exit 1
-fi
+#if ! [ -x "$(command -v hxselect)" ]; then
+#  echo '{"success": 0, "message": "hxselect command not found"}'
+#  exit 1
+#fi
 
 if ! [ -x "$(command -v sed)" ]; then
   echo '{"success": 0, "message": "sed command not found"}'
@@ -73,11 +72,18 @@ if ! [ -x "$(command -v xmlstarlet)" ]; then
   exit 1
 fi
 
+if ! [ -x "$(command -v pup)" ]; then
+  echo '{"success": 0, "message": "pup command not found"}'
+  exit 1
+fi
+
+
+
 # Some modems use cgi-bin/status other modems use RgConnect.asp
 curl --fail -s -o /dev/null http://${modemAddress}/RgConnect.asp >/dev/null 2>&1
 retVal=$?
 if [ $retVal -ne 0 ]; then
-	modemPath="cgi-bin/status"
+	modemPath="cgi-bin/status_cgi"
 else
 	modemPath="RgConnect.asp"
 fi
@@ -97,7 +103,8 @@ fi
 
 
 # Retrieve status webpage and parse tables into XML
-CURL_OUTPUT=$(curl -b /tmp/arris_sb6190_discover_downstream_channels.cookies -s http://$modemAddress/$modemPath 2>/dev/null | hxnormalize -x -d -l 256 2> /dev/null | hxselect -i 'table.simpleTable' | sed 's/ kSym\/s//g' | sed 's/ MHz//g' | sed 's/ dBmV//g' | sed 's/ dB//g' | sed 's/<td> */<td>/g' | sed 's/&nbsp;//g')
+CURL_OUTPUT=$(curl -b /tmp/arris_sb6190_discover_downstream_channels.cookies -s http://$modemAddress/$modemPath 2>/dev/null | hxnormalize -x -d -l 256 2> /dev/null | pup 'table' | sed ':a $!{N; ba}; s|<tbody>|<tbody><th colspan="9">Downstream Bonded Channels</th>|2' | sed 's/ Downstream //g' | sed 's/ kSym\/s//g' | sed 's/ MHz//g' | sed 's/ dBmV//g' | sed 's/ dB//g' | sed 's/<td> */<td>/g' | sed 's/&nbsp;//g')
+
 
 # Delete cookies file
 rm -f /tmp/arris_sb6190_discover_downstream_channels.cookies
@@ -109,7 +116,8 @@ STATUS_XML="<tables>$CURL_OUTPUT</tables>"
 echo "{"
 echo '"data": ['
 
-echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table/tbody/tr[(../tr/th/strong/text() = 'Downstream Bonded Channels') and (position()>2)]" -v "concat('{%{#INDEX}%: %', position()-1, '%, %{#CHANNELID}%: %', td[position()=4], '%},')" -n | sed 's/%/"/g' | sed '$ s/.$//'
+echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table[2]/tbody/tr[(position() > 1)]" -v "concat('{%{#INDEX}%: %', position()-1, '%, %{#CHANNELID}%: %', td[position()=2], '%},')" -n | sed 's/%/"/g' | sed '$ s/.$//'
+
 
 echo ']'
 echo "}"

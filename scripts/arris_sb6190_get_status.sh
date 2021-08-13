@@ -43,6 +43,7 @@ fi
 
 #
 # Validate dependencies are available
+# Added pup dependency, don't need hxselect because THERE'S LITERALLY NO CSS
 #
 
 if ! [ -x "$(command -v awk)" ]; then
@@ -60,10 +61,10 @@ if ! [ -x "$(command -v hxnormalize)" ]; then
   exit 1
 fi
 
-if ! [ -x "$(command -v hxselect)" ]; then
-  echo '{"success": 0, "message": "hxselect command not found"}'
-  exit 1
-fi
+#if ! [ -x "$(command -v hxselect)" ]; then
+#  echo '{"success": 0, "message": "hxselect command not found"}'
+#  exit 1
+#fi
 
 if ! [ -x "$(command -v sed)" ]; then
   echo '{"success": 0, "message": "sed command not found"}'
@@ -74,13 +75,18 @@ if ! [ -x "$(command -v xmlstarlet)" ]; then
   echo '{"success": 0, "message": "xmlstarlet command not found"}'
   exit 1
 fi
+if ! [ -x "$(command -v pup)" ]; then
+  echo '{"success": 0, "message": "pup command not found"}'
+  exit 1
+fi
 
 
 # Some modems use cgi-bin/status other modems use RgConnect.asp
+# This modem uses cgi-bin/status_cgi. I know, shouldn't hardcode it in
 curl --fail -s -o /dev/null http://${modemAddress}/RgConnect.asp >/dev/null 2>&1
 retVal=$?
 if [ $retVal -ne 0 ]; then
-	modemPath="cgi-bin/status"
+	modemPath="cgi-bin/status_cgi"
 else
 	modemPath="RgConnect.asp"
 fi
@@ -108,7 +114,8 @@ if [ $RESPONSE_CODE -ne 200 ]; then
 fi
 
 # Retrieve status webpage and parse tables into XML
-CURL_OUTPUT=$(curl -b /tmp/arris_sb6190_get_status.cookies -s http://$modemAddress/$modemPath 2>/dev/null | hxnormalize -x -d -l 256 2> /dev/null | hxselect -i 'table.simpleTable' | sed 's/ kSym\/s//g' | sed 's/ MHz//g' | sed 's/ dBmV//g' | sed 's/ dB//g' | sed 's/<td> */<td>/g' | sed 's/&nbsp;//g')
+# Added in <th>s to match SB table and removed table Upstream/Downstream text
+CURL_OUTPUT=$(curl -b /tmp/arris_sb6190_get_status.cookies -s http://$modemAddress/$modemPath 2>/dev/null | hxnormalize -x -d -l 256 2> /dev/null | pup 'table' | sed ':a $!{N; ba}; s|<tbody>|<tbody><tr><th>Downstream Bonded Channels</th></tr>|2 ; s|<tbody>|<tbody><tr><th colspan="9">Upstream Bonded Channels</th></tr>|4 ; s|<tbody>|<tbody><tr><th>Startup Procedure</th></tr>|6' | sed 's/ Downstream //g' | sed 's/ Upstream //g' | sed 's/ kSym\/s//g' | sed 's/ MHz//g' | sed 's/ dBmV//g' | sed 's/ dB//g' | sed 's/<td> */<td>/g' | sed 's/&nbsp;//g') 
 
 # Delete cookies file
 rm -f /tmp/arris_sb6190_get_status.cookies
@@ -119,64 +126,73 @@ echo "{"
 echo '"http_status": '$RESPONSE_CODE', '
 
 # Print all status config elements
-echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table/tbody/tr[(../tr/th/text() = 'Startup Procedure') and (position()>2)]" -v "concat('%', translate(td[position()=1], 'ABCDEFGHIJKLMNOPQRSTUVWXYZ ', 'abcdefghijklmnopqrstuvwxyz_'), '%: %', td[position()=2], '%,')" -n | sed 's/%/"/g'
+# Changed xpath and td positions
+echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table/tbody/tr[(../tr/th/text() = 'Startup Procedure') and (position()>1)]" -v "concat('%', translate(td[position()=1], 'ABCDEFGHIJKLMNOPQRSTUVWXYZ ', 'abcdefghijklmnopqrstuvwxyz_'), '%: %', td[position()=2], '%,')" -n | sed 's/%/"/g'
 
 
 # Calculate Downstream Channel Count
-echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table/tbody/tr[(../tr/th/strong/text() = 'Downstream Bonded Channels') and (position()>2)]" -v "td[position()=1]" -n | awk 'END { print "\"downstream_channels\": \"" NR "\","}'
-
+# Changed xpath and td positions
+echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table[2]/tbody/tr[(position() > 2)]" -v "td[position()=1]" -n | awk 'END { print "\"downstream_channels\": \"" NR "\","}'
 
 # Calculate Downstream Power stats
-echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table/tbody/tr[(../tr/th/strong/text() = 'Downstream Bonded Channels') and (position()>2)]" -v "td[position()=6]" -n | awk '{ if(min == "" || $1 < min) {min=$1} } END { print "\"downstream_power_minimum\": \"" min "\","}'
+# Changed xpath and td positions
+echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table[2]/tbody/tr[(position() > 2)]" -v "td[position()=4]" -n | awk '{ if(min == "" || $1 < min) {min=$1} } END { print "\"downstream_power_minimum\": \"" min "\","}'
 
-echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table/tbody/tr[(../tr/th/strong/text() = 'Downstream Bonded Channels') and (position()>2)]" -v "td[position()=6]" -n | awk '{ total += $1 } END { print "\"downstream_power_average\": \"" total/NR "\","}'
+echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table[2]/tbody/tr[(position() > 2)]" -v "td[position()=4]" -n | awk '{ total += $1 } END { print "\"downstream_power_average\": \"" total/NR "\","}'
 
-echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table/tbody/tr[(../tr/th/strong/text() = 'Downstream Bonded Channels') and (position()>2)]" -v "td[position()=6]" -n | awk '{ if(max == "" || $1 > max) {max=$1} } END { print "\"downstream_power_maximum\": \"" max "\","}'
+echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table[2]/tbody/tr[(position() > 2)]" -v "td[position()=4]" -n | awk '{ if(max == "" || $1 > max) {max=$1} } END { print "\"downstream_power_maximum\": \"" max "\","}'
 
 
 # Calculate Downstream SNR stats
-echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table/tbody/tr[(../tr/th/strong/text() = 'Downstream Bonded Channels') and (position()>2)]" -v "td[position()=7]" -n | awk '{ if(min == "" || $1 < min) {min=$1} } END { print "\"downstream_snr_minimum\": \"" min "\","}'
+# Changed xpath and td positions
+echo $STATUS_XML | xmlstarlet sel -t -m "///tables/table[2]/tbody/tr[(position() > 2)]" -v "td[position()=5]" -n | awk '{ if(min == "" || $1 < min) {min=$1} } END { print "\"downstream_snr_minimum\": \"" min "\","}'
 
-echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table/tbody/tr[(../tr/th/strong/text() = 'Downstream Bonded Channels') and (position()>2)]" -v "td[position()=7]" -n | awk '{ total += $1 } END { print "\"downstream_snr_average\": \"" total/NR "\","}'
+echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table[2]/tbody/tr[(position() > 2)]" -v "td[position()=5]" -n | awk '{ total += $1 } END { print "\"downstream_snr_average\": \"" total/NR "\","}'
 
-echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table/tbody/tr[(../tr/th/strong/text() = 'Downstream Bonded Channels') and (position()>2)]" -v "td[position()=7]" -n | awk '{ if(max == "" || $1 > max) {max=$1} } END { print "\"downstream_snr_maximum\": \"" max "\","}'
+echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table[2]/tbody/tr[(position() > 2)]" -v "td[position()=5]" -n | awk '{ if(max == "" || $1 > max) {max=$1} } END { print "\"downstream_snr_maximum\": \"" max "\","}'
 
 
 # calculate corrected & uncorrectable totals
-echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table/tbody/tr[(../tr/th/strong/text() = 'Downstream Bonded Channels') and (position()>2)]" -v "td[position()=8]" -n | awk '{ total += $1 } END { print "\"downstream_corrected_total\": \"" total "\","}'
+# Changed xpath and td positions
+echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table[2]/tbody/tr[(position() > 2)]" -v "td[position()=8]" -n | awk '{ total += $1 } END { print "\"downstream_corrected_total\": \"" total "\","}'
 
-echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table/tbody/tr[(../tr/th/strong/text() = 'Downstream Bonded Channels') and (position()>2)]" -v "td[position()=9]" -n | awk '{ total += $1 } END { print "\"downstream_uncorrectable_total\": \"" total "\","}'
+echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table[2]/tbody/tr[(position() > 2)]" -v "td[position()=9]" -n | awk '{ total += $1 } END { print "\"downstream_uncorrectable_total\": \"" total "\","}'
 
 
 # Calculate Upstream Channel Count
-echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table/tbody/tr[(../tr/th/strong/text() = 'Upstream Bonded Channels') and (position()>2)]" -v "td[position()=1]" -n | awk 'END { print "\"upstream_channels\": \"" NR "\","}'
+# Changed xpath and td positions
+echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table[4]/tbody/tr[(position() > 3)]" -v "td[position()=1]" -n | awk 'END { print "\"upstream_channels\": \"" NR "\","}'
 
 
 # Calculate Upstream Rate stats
-echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table/tbody/tr[(../tr/th/strong/text() = 'Upstream Bonded Channels') and (position()>2)]" -v "td[position()=5]" -n | awk '{ if(min == "" || $1 < min) {min=$1} } END { print "\"upstream_symbol_rate_minimum\": \"" min "\","}'
+# Changed xpath and td positions
+echo $STATUS_XML | xmlstarlet sel -t -m "///tables/table[4]/tbody/tr[(position() > 3)]" -v "td[position()=6]" -n | awk '{ if(min == "" || $1 < min) {min=$1} } END { print "\"upstream_symbol_rate_minimum\": \"" min "\","}'
 
-echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table/tbody/tr[(../tr/th/strong/text() = 'Upstream Bonded Channels') and (position()>2)]" -v "td[position()=5]" -n | awk '{ total += $1 } END { print "\"upstream_symbol_rate_average\": \"" total/NR "\","}'
+echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table[4]/tbody/tr[(position() > 3)]" -v "td[position()=6]" -n | awk '{ total += $1 } END { print "\"upstream_symbol_rate_average\": \"" total/NR "\","}'
 
-echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table/tbody/tr[(../tr/th/strong/text() = 'Upstream Bonded Channels') and (position()>2)]" -v "td[position()=5]" -n | awk '{ if(max == "" || $1 > max) {max=$1} } END { print "\"upstream_symbol_rate_maximum\": \"" max "\","}'
+echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table[4]/tbody/tr[(position() > 3)]" -v "td[position()=6]" -n | awk '{ if(max == "" || $1 > max) {max=$1} } END { print "\"upstream_symbol_rate_maximum\": \"" max "\","}'
 
 
 # Calculate Upstream Power stats
-echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table/tbody/tr[(../tr/th/strong/text() = 'Upstream Bonded Channels') and (position()>2)]" -v "td[position()=7]" -n | awk '{ if(min == "" || $1 < min) {min=$1} } END { print "\"upstream_power_minimum\": \"" min "\","}'
+# Changed xpath and td positions
+echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table[4]/tbody/tr[(position() > 3)]" -v "td[position()=3]" -n | awk '{ if(min == "" || $1 < min) {min=$1} } END { print "\"upstream_power_minimum\": \"" min "\","}'
 
-echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table/tbody/tr[(../tr/th/strong/text() = 'Upstream Bonded Channels') and (position()>2)]" -v "td[position()=7]" -n | awk '{ total += $1 } END { print "\"upstream_power_average\": \"" total/NR "\","}'
+echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table[4]/tbody/tr[(position() > 3)]" -v "td[position()=3]" -n | awk '{ total += $1 } END { print "\"upstream_power_average\": \"" total/NR "\","}'
 
-echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table/tbody/tr[(../tr/th/strong/text() = 'Upstream Bonded Channels') and (position()>2)]" -v "td[position()=7]" -n | awk '{ if(max == "" || $1 > max) {max=$1} } END { print "\"upstream_power_maximum\": \"" max "\","}'
+echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table[4]/tbody/tr[(position() > 3)]" -v "td[position()=3]" -n | awk '{ if(max == "" || $1 > max) {max=$1} } END { print "\"upstream_power_maximum\": \"" max "\","}'
 
 
 # Print all downstream channels
+#Changed xpath and td positions. Put lock_status as 10 because doesn't exist.
 echo '"downstream": ['
-echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table/tbody/tr[(../tr/th/strong/text() = 'Downstream Bonded Channels') and (position()>2)]" -v "concat('{%index%: %', position()-1, '%, %channel_id%: %', td[position()=4], '%, %lock_status%: %', td[position()=2], '%, %modulation%: %', td[position()=3], '%, %frequency%: %', td[position()=5], '%, %power%: %', td[position()=6], '%, %snr%: %', td[position()=7], '%, %corrected%: %', td[position()=8], '%, %uncorrectables%: %', td[position()=9], '%},')" -n | sed 's/%/"/g' | sed '$ s/.$//'
+echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table[2]/tbody/tr[(position() > 2)]" -v "concat('{%index%: %', position()-1, '%, %channel_id%: %', td[position()=1], '%, %lock_status%: %', td[position()=10], '%, %modulation%: %', td[position()=6], '%, %frequency%: %', td[position()=3], '%, %power%: %', td[position()=4], '%, %snr%: %', td[position()=5], '%, %corrected%: %', td[position()=8], '%, %uncorrectables%: %', td[position()=9], '%},')" -n | sed 's/%/"/g' | sed '$ s/.$//'
 echo '],'
 
 
 # Print all upstream channels
+#Changed xpath and td positions. Put lock_status as 10 because doesn't exist.
 echo '"upstream": ['
-echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table/tbody/tr[(../tr/th/strong/text() = 'Upstream Bonded Channels') and (position()>2)]" -v "concat('{%index%: %', position()-1, '%, %channel_id%: %', td[position()=4], '%, %lock_status%: %', td[position()=2], '%, %channel_type%: %', td[position()=3], '%, %symbol_rate%: %', td[position()=5], '%, %frequency%: %', td[position()=6], '%, %power%: %', td[position()=7], '%},')" -n | sed 's/%/"/g' | sed '$ s/.$//'
+echo $STATUS_XML | xmlstarlet sel -t -m "//tables/table[4]/tbody/tr[(position() > 3)]"  -v "concat('{%index%: %', position()-1, '%, %channel_id%: %', td[position()=2], '%, %lock_status%: %', td[position()=10], '%, %channel_type%: %', td[position()=5], '%, %symbol_rate%: %', td[position()=6], '%, %frequency%: %', td[position()=3], '%, %power%: %', td[position()=4], '%},')" -n | sed 's/%/"/g' | sed '$ s/.$//'
 echo ']'
 
 echo "}"
