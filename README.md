@@ -31,9 +31,9 @@ Out of the box the template has a number of items, triggers, and graphs as well 
 
 ### Template Items
 * Check Status (5min refresh, text of status results)
-  * ~~Boot (last value from config screen)
-  * ~~Configuration (last value from config screen)
-  * ~~Connectivity (last value from config screen)
+  * ~~Boot (last value from config screen)~~
+  * ~~Configuration (last value from config screen)~~
+  * ~~Connectivity (last value from config screen)~~
   * Downsteam Channels (count)
   * Downstream Power (min/avg/max)
   * Downstream SNR (min/avg/max)
