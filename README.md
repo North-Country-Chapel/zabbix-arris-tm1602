@@ -1,6 +1,6 @@
-# zabbix-arris-sb6190
-Zabbix template for monitoring [ARRIS SB6190 SURFBoard Cable Modems](https://www.arris.com/surfboard/products/cable-modems/sb6190)
-Additionally may support SB6183 although not tested by me
+# zabbix-arris-tm1602
+Zabbix template for monitoring [ARRIS TM1602 Cable Modems](https://arris.secure.force.com/consumers/ConsumerProductDetail?p=a0ha000000OlCnSAAV&c=Discontinued#panel3)
+
 
 The default trigger values and graph limits are based on:
 * [ARRIS SB6190: CABLE SIGNAL LEVELS](https://arris.secure.force.com/consumers/articles/General_FAQs/SB6190-Cable-Signal-Levels)
@@ -10,9 +10,10 @@ The default trigger values and graph limits are based on:
 ## Dependencies
 - curl
 - gawk
-- html-xml-utils (for hxnormalize & hxselect)
+- html-xml-utils (for hxnormalize)
 - sed
-- xmlstarlet 
+- xmlstarlet
+- pup
  
 ## Installation
 - Copy the scripts to your Zabbix ExternalScripts location (default: /usr/lib/zabbix/externalscripts)
@@ -30,9 +31,9 @@ Out of the box the template has a number of items, triggers, and graphs as well 
 
 ### Template Items
 * Check Status (5min refresh, text of status results)
-  * Boot (last value from config screen)
-  * Configuration (last value from config screen)
-  * Connectivity (last value from config screen)
+  * ~~Boot (last value from config screen)
+  * ~~Configuration (last value from config screen)
+  * ~~Connectivity (last value from config screen)
   * Downsteam Channels (count)
   * Downstream Power (min/avg/max)
   * Downstream SNR (min/avg/max)
